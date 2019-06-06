@@ -15,6 +15,10 @@ ClusterConfig:
       items:
         type: string
       type: array
+    enableLogging:
+      items:
+        type: string
+      type: array
     iam:
       $ref: '#/definitions/ClusterIAM'
       $schema: http://json-schema.org/draft-04/schema#

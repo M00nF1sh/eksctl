@@ -56,6 +56,11 @@ func (in *ClusterConfig) DeepCopyInto(out *ClusterConfig) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.EnableLogging != nil {
+		in, out := &in.EnableLogging, &out.EnableLogging
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Status != nil {
 		in, out := &in.Status, &out.Status
 		*out = new(ClusterStatus)

@@ -289,6 +289,9 @@ type ClusterConfig struct {
 	// +optional
 	AvailabilityZones []string `json:"availabilityZones,omitempty"`
 
+	// +optional
+	EnableLogging []string `json:"enableLogging,omitempty"`
+
 	Status *ClusterStatus `json:"status,omitempty"`
 }
 

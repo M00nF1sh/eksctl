@@ -1,5 +1,20 @@
 package v1alpha5
 
+func SupportedLoggingFacilities() []string {
+	return []string{"api", "audit", "authenticator", "controllerManager", "scheduler"}
+}
+
+// SetClusterConfigDefaults will set defaults for a given cluster
+func SetClusterConfigDefaults(cfg *ClusterConfig) error {
+	if len(cfg.EnableLogging) == 1 {
+		switch cfg.EnableLogging[0] {
+		case "all", "*":
+			cfg.EnableLogging = SupportedLoggingFacilities()
+		}
+	}
+	return nil
+}
+
 // SetNodeGroupDefaults will set defaults for a given nodegroup
 func SetNodeGroupDefaults(_ int, ng *NodeGroup) error {
 	if ng.InstanceType == "" {

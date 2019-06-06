@@ -11,3 +11,5 @@ nodeGroups:
   - name: ng-1
     instanceType: m5.large
     desiredCapacity: 10
+
+enableLogging: [all]

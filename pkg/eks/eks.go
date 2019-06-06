@@ -10,6 +10,7 @@ import (
 	"github.com/kris-nova/logger"
 	"github.com/pkg/errors"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/request"
 	awseks "github.com/aws/aws-sdk-go/service/eks"
 
@@ -17,6 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	api "github.com/weaveworks/eksctl/pkg/apis/eksctl.io/v1alpha5"
+	"github.com/weaveworks/eksctl/pkg/cfn/manager"
 	"github.com/weaveworks/eksctl/pkg/printers"
 	"github.com/weaveworks/eksctl/pkg/utils/waiters"
 	"github.com/weaveworks/eksctl/pkg/vpc"
@@ -228,18 +230,82 @@ func (c *ClusterProvider) WaitForControlPlane(id *api.ClusterMeta, clientSet *ku
 	}
 }
 
+type updateClusterConfigTask struct {
+	info string
+	spec *api.ClusterConfig
+	call func(*api.ClusterConfig) error
+}
+
+func (t *updateClusterConfigTask) Describe() string { return t.info }
+func (t *updateClusterConfigTask) Do(errs chan error) error {
+	err := t.call(t.spec)
+	close(errs)
+	return err
+}
+
+// UpdateClusterConfigForLogging calls UpdateClusterConfig to enable logging
+func (c *ClusterProvider) UpdateClusterConfigForLogging(cfg *api.ClusterConfig) error {
+	enabled := sets.NewString(cfg.EnableLogging...)
+	disabled := sets.NewString()
+	for _, facility := range api.SupportedLoggingFacilities() {
+		if !enabled.Has(facility) {
+			disabled.Insert((facility))
+		}
+	}
+
+	logger.Info("updating cluster configuration for logging (enabled facilities: %s)", strings.Join(disabled.List(), ", "))
+
+	input := &awseks.UpdateClusterConfigInput{
+		Name: &cfg.Metadata.Name,
+		Logging: &awseks.Logging{
+			ClusterLogging: []*awseks.LogSetup{
+				{
+					Enabled: api.Enabled(),
+					Types:   aws.StringSlice(enabled.List()),
+				},
+				{
+					Enabled: api.Disabled(),
+					Types:   aws.StringSlice(disabled.List()),
+				},
+			},
+		},
+	}
+
+	output, err := c.Provider.EKS().UpdateClusterConfig(input)
+	if err != nil {
+		return err
+	}
+	if err := c.waitForUpdateToSucceed(cfg.Metadata.Name, output.Update); err != nil {
+		return err
+	}
+	return nil
+}
+
+// UpdateClusterConfigTasks returns all tasks for updating cluster configuration
+func (c *ClusterProvider) UpdateClusterConfigTasks(cfg *api.ClusterConfig) *manager.TaskTree {
+	tasks := &manager.TaskTree{Parallel: false}
+
+	tasks.Append(&updateClusterConfigTask{
+		info: "update cluster logging configurtaion",
+		spec: cfg,
+		call: c.UpdateClusterConfigForLogging,
+	})
+
+	return tasks
+}
+
 // UpdateClusterVersion calls eks.UpdateClusterVersion and updates to cfg.Metadata.Version,
 // it will return update ID along with an error (if it occurrs)
-func (c *ClusterProvider) UpdateClusterVersion(cfg *api.ClusterConfig) (string, error) {
+func (c *ClusterProvider) UpdateClusterVersion(cfg *api.ClusterConfig) (*awseks.Update, error) {
 	input := &awseks.UpdateClusterVersionInput{
 		Name:    &cfg.Metadata.Name,
 		Version: &cfg.Metadata.Version,
 	}
 	output, err := c.Provider.EKS().UpdateClusterVersion(input)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return *output.Update.Id, nil
+	return output.Update, nil
 }
 
 // UpdateClusterVersionBlocking calls UpdateClusterVersion and blocks until update
@@ -250,16 +316,18 @@ func (c *ClusterProvider) UpdateClusterVersionBlocking(cfg *api.ClusterConfig) e
 		return err
 	}
 
+	return c.waitForUpdateToSucceed(cfg.Metadata.Name, id)
+}
+
+func (c *ClusterProvider) waitForUpdateToSucceed(clusterName string, update *awseks.Update) error {
 	newRequest := func() *request.Request {
 		input := &awseks.DescribeUpdateInput{
-			Name:     &cfg.Metadata.Name,
-			UpdateId: &id,
+			Name:     &clusterName,
+			UpdateId: update.Id,
 		}
 		req, _ := c.Provider.EKS().DescribeUpdateRequest(input)
 		return req
 	}
-
-	msg := fmt.Sprintf("waiting for control plane %q version update", cfg.Metadata.Name)
 
 	acceptors := waiters.MakeAcceptors(
 		"Update.Status",
@@ -270,7 +338,9 @@ func (c *ClusterProvider) UpdateClusterVersionBlocking(cfg *api.ClusterConfig) e
 		},
 	)
 
-	return waiters.Wait(cfg.Metadata.Name, msg, acceptors, newRequest, c.Provider.WaitTimeout(), nil)
+	msg := fmt.Sprintf("waiting for requested %q in cluster %q to succeed", *update.Type, clusterName)
+
+	return waiters.Wait(clusterName, msg, acceptors, newRequest, c.Provider.WaitTimeout(), nil)
 }
 
 func addSummaryTableColumns(printer *printers.TablePrinter) {
