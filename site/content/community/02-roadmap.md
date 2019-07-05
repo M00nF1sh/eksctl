@@ -1,16 +1,17 @@
 ---
-title: "Road Map"
+title: "Project Roadmap"
 weight: 20
-url: community/road-map
+url: community/roadmap
 ---
 
-## Project Road Map
+## Project Roadmap Themes
 
-### Manage EKS the GitOps way (0.2.0)
+### GitOps: Declarative Configuration Managent (aka Cluster API)
 
-Just like `kubectl`, `eksctl` aims to be compliant with GitOps model, and can be used as part of a GitOps toolkit!
+One should be able to make EKS cluster configuration through declarative config files (`eksctl apply`). Additionally, they should be able to manage a cluster via a git repo.
 
-For example, `eksctl apply --cluster-config prod-cluster.yaml` will manage cluster state declaratively.
+### Cluster Applications (aka Add-ons)
 
-And `eksctld` will be a controller inside of one cluster that can manage multiple other clusters based on Kubernetes Cluster API definitions (CRDs).
+It should be easy to create a cluster with various applications pre-installed, e.g. Weave Flux, Helm 2 (Tiller), ALB Ingress controller, to name a few.
 
+> Note: this will depend on how [add-ons spec by SIG Cluster Lifecycle](https://github.com/kubernetes/enhancements/pull/746) will evolve.
